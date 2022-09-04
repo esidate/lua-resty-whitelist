@@ -1,0 +1,16 @@
+version: '3.7'
+
+services:
+  openresty:
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile.openresty
+    container_name: openresty
+    volumes:
+      - "./default.conf:/etc/nginx/conf.d/default.conf:ro"
+      - "../lib/resty/whitelist.lua:/usr/local/lib/lua/resty/whitelist.lua:ro"
+    ports:
+      - "80:80"
+    expose:
+      - "80"

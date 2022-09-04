@@ -1,19 +1,20 @@
 package = "lua-resty-whitelist"
-version = "0.0.0"
+version = "0.1-0"
 
 source = {
   url = "git+https://github.com/esidate/lua-resty-whitelist",
-  tag = "v0.0.0",
+  tag = "v0.1-0",
 }
 
 description = {
-  summary = "Lua NGINX dynamic allowlist based on ngx_lua module and OpenResty",
+  summary = "Dynamic whitelist in Lua based on ngx_lua for NGINX and OpenResty",
   license = "MIT",
 }
 
 dependencies = {
   "lua >= 5.1",
-  "resty.iputils => 0.3.0"
+  "resty.iputils >= 0.3",
+  "resty.http >= 0.15",
 }
 
 build = {

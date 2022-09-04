@@ -1,0 +1,14 @@
+FROM openresty/openresty:latest
+
+RUN apt-get -y update && apt-get -y install wget make unzip && \
+    wget http://luarocks.org/releases/luarocks-2.0.13.tar.gz && \
+    tar -xzvf luarocks-2.0.13.tar.gz && \
+    cd luarocks-2.0.13/ && \
+    ./configure --prefix=/usr/local/openresty/luajit \
+    --with-lua=/usr/local/openresty/luajit/ \
+    --lua-suffix=jit \
+    --with-lua-include=/usr/local/openresty/luajit/include/luajit-2.1 && \
+    make && make install
+
+RUN luarocks install lua-resty-iputils
+RUN luarocks install lua-resty-http

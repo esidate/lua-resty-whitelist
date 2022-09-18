@@ -46,6 +46,7 @@ server {
 
 - IPv6 support
 - Caching of the whitelist and sharing it between workers
+- Dockerize a production-ready version and publish it to Docker Hub
 - Tests
 - Better error handling and logging
 - Better documentation

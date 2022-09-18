@@ -32,44 +32,69 @@ local function fetch_whitelist(url)
         }
     })
 
-    local status = res and res.status or nil
-    local body = res and res.body or nil
-
-    if (not res) or (not body) or (status and (status < 200 or status >= 300)) or err then
-        ngx.log(ngx.ERR, "[lua-resty-whitelist] failed to fetch whitelist => url: " .. url .. ", status: " .. status ..
-            ", body: " .. body, err)
-        ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
+    if not res then
+        ngx.log(ngx.ERR, "[lua-resty-whitelist] failed to request whitelist endpoint: response is empty, URL: ", url)
+        ngx.exit(ngx.HTTP_SERVICE_UNAVAILABLE)
+    end
+    if is_empty(res.body) or res.status < 200 or res.status > 299 then
+        ngx.log(ngx.ERR,
+            "[lua-resty-whitelist] failed to request whitelist endpoint: status code is not success, URL: ", url)
+        ngx.exit(ngx.HTTP_SERVICE_UNAVAILABLE)
     end
 
-    local whitelist = body .. " "
-    local whitelist_array = {}
+    local body = res.body
 
-    -- Extract CIRDs
-    for ip in string.gmatch(whitelist, "((%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)/(%d%d?))") do
-        table.insert(whitelist_array, ip)
+    local whitelist_body = " " .. body .. " "
+
+    -- Extract all CIDRs from whitelist
+    local cidrs_regex =
+        "((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\\/(3[0-6]|[1-2][0-9]|[0-9])))"
+    local whitelist_cidrs = {}
+    for cidr in ngx.re.gmatch(whitelist_body, cidrs_regex, "o") do
+        table.insert(whitelist_cidrs, cidr[0])
     end
 
-    -- local whitelist_concat = table.concat(whitelist_array, ", ")
-    -- ngx.log(ngx.ERR, "[lua-resty-whitelist] CIRDs: " .. whitelist_concat)
+    -- Extract all IPs from whitelist
+    local ip_regex =
+        "((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))"
+    local whitelist_ips = {}
+    for ip in ngx.re.gmatch(whitelist_body, ip_regex, "o") do
+        table.insert(whitelist_ips, ip[0])
+    end
 
-    -- TODO: Extract normal IPs as well
+    -- Parse CIDRs
+    local whitelist_cidrs_parsed = {}
+    if istable(whitelist_cidrs) and #whitelist_ips > 0 then
+        whitelist_cidrs_parsed, err = iputils.parse_cidrs(whitelist_cidrs)
+        if err then
+            ngx.log(ngx.ERR, "[lua-resty-whitelist] failed to parse CIDRs, URL: " .. url .. ", err: " .. err)
+            ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
+        end
+    end
 
-    -- -- Extract IPs
-    -- for ip in string.gmatch(whitelist, "((%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)%.(%d%d?%d?)$)") do
-    --     table.insert(whitelist_array, string.sub(ip, 1, -2))
-    -- end
+    -- For each IP verify that there is no CIDR that contains it (sort of a clean up)
+    local clean_whitelist_ips = {}
+    for _, ip in ipairs(whitelist_ips) do
+        if not iputils.ip_in_cidrs(ip, whitelist_cidrs_parsed) then
+            table.insert(clean_whitelist_ips, ip)
+        end
+    end
 
-    -- whitelist_concat = table.concat(whitelist_array, ", ")
-    -- ngx.log(ngx.ERR, "[lua-resty-whitelist] whitelist_concat: " .. whitelist_concat)
-
-    return whitelist_array
+    return clean_whitelist_ips, whitelist_cidrs_parsed, whitelist_cidrs
 end
 
-local function match_ip_whitelist(ip, whitelist_array)
-    local whitelist = iputils.parse_cidrs(whitelist_array)
-    if not iputils.ip_in_cidrs(ip, whitelist) then
-        return ngx.exit(ngx.HTTP_FORBIDDEN)
+local function match_ip_whitelist(ip, full_whitelist_ips, full_whitelist_cidrs_parsed)
+    if iputils.ip_in_cidrs(ip, full_whitelist_cidrs_parsed) then
+        return true
     end
+
+    for _, v in ipairs(full_whitelist_ips) do
+        if v == ip then
+            return true
+        end
+    end
+
+    return ngx.exit(ngx.HTTP_FORBIDDEN)
 end
 
 function whitelist_m.new(url)
@@ -79,24 +104,41 @@ function whitelist_m.new(url)
         ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
     end
 
-    local whitelist_array = {}
+    local full_whitelist_cidrs_parsed = {}
+    local full_whitelist_cidrs_unparsed = {}
+    local full_whitelist_ips = {}
 
     if istable(url) then
-        for _, u in ipairs(url) do
-            if is_empty(u) then
+        -- Iterate over the table url as it is a list of URLs
+        for _, v in ipairs(url) do
+            if is_empty(v) then
                 ngx.log(ngx.ERR, validation_message)
                 ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
             end
 
-            for _, v in ipairs(fetch_whitelist(u)) do
-                table.insert(whitelist_array, v)
+            local whitelist_ips, whitelist_cidrs_parsed, whitelist_cidrs_unparsed = fetch_whitelist(v)
+
+            for _, ip in ipairs(whitelist_ips) do
+                table.insert(full_whitelist_ips, ip)
+            end
+
+            for _, cidr in ipairs(whitelist_cidrs_parsed) do
+                table.insert(full_whitelist_cidrs_parsed, cidr)
+            end
+
+            for _, cidr in ipairs(whitelist_cidrs_unparsed) do
+                table.insert(full_whitelist_cidrs_unparsed, cidr)
             end
         end
     else
-        whitelist_array = fetch_whitelist(url)
+        -- Get clean_whitelist_ips, whitelist_cidrs_parsed from fetch_whitelist(url)
+        full_whitelist_ips, full_whitelist_cidrs_parsed, full_whitelist_cidrs_unparsed = fetch_whitelist(url)
     end
 
-    match_ip_whitelist(ngx.var.remote_addr, whitelist_array)
+    ngx.log(ngx.ALERT, "Whitelist IPs: " .. table.concat(full_whitelist_ips, ", "))
+    ngx.log(ngx.ALERT, "Whitelist CIDRs: " .. table.concat(full_whitelist_cidrs_unparsed, ", "))
+
+    match_ip_whitelist(ngx.var.remote_addr, full_whitelist_ips, full_whitelist_cidrs_parsed)
 end
 
 return whitelist_m

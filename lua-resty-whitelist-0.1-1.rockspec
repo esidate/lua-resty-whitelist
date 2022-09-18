@@ -10,7 +10,6 @@ description = {
   summary = "Dynamic whitelist in Lua based on ngx_lua for NGINX and OpenResty",
   detailed = "This module can be used to implement a dynamic whitelist in NGINX/OpenResty. This is especially useful to allow access only to some SaaS and Cloud services with dynamic IP addresses, such as Cloudflare, AWS, Azure, etc. For example, some of them may offer security features such as DDOS protection, WAF, etc. but can be bypassed if the origin IP is leaked and the server allows access from any IP address.",
   homepage = "https://github.com/esidate/lua-resty-whitelist",
-  issues_url = "https://github.com/esidate/lua-resty-whitelist/issues",
   maintainer = "https://www.linkedin.com/in/el-mahdi-sidate/",
   license = "MIT",
 }

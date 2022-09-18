@@ -33,7 +33,7 @@ server {
             }
             whitelist.new(whitelist_urls)
 
-            -- Or sinlge URL
+            -- Or single URL
 
             local whitelist_url = "https://www.cloudflare.com/ips-v4"
             whitelist.new(whitelist_url)
